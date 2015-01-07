@@ -1,39 +1,44 @@
 /*
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 */
 
 package main
 
-import "flag"
-import "fmt"
-import "io"
-import "net/http"
-import "net/url"
-import "log"
-import "os"
-import "time"
-import "github.com/golang/groupcache/lru"
-import "strings"
-import "github.com/kz26/m3u8"
+import (
+	"flag"
+	"fmt"
+	"github.com/golang/groupcache/lru"
+	"github.com/kz26/m3u8"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
 
-const VERSION = "1.0.5"
+const VERSION = "0.0.1"
 
 var USER_AGENT string
 
 var client = &http.Client{}
+
+var VERBOSE bool
 
 func doRequest(c *http.Client, req *http.Request) (*http.Response, error) {
 	req.Header.Set("User-Agent", USER_AGENT)
@@ -42,16 +47,19 @@ func doRequest(c *http.Client, req *http.Request) (*http.Response, error) {
 }
 
 type Download struct {
-	URI string
+	URI           string
 	totalDuration time.Duration
 }
 
 func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
-	out, err := os.Create(fn)
-	if err != nil {
-		log.Fatal(err)
+	var out io.Writer
+	if fn != "" {
+		out, err := os.Create(fn)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer out.Close()
 	}
-	defer out.Close()
 	for v := range dlc {
 		req, err := http.NewRequest("GET", v.URI, nil)
 		if err != nil {
@@ -63,24 +71,30 @@ func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
 			continue
 		}
 		if resp.StatusCode != 200 {
-			log.Printf("Received HTTP %v for %v\n", resp.StatusCode, v.URI)
+			log.Printf("ERROR: HTTP %v at position %v for %v\n", resp.StatusCode, v.totalDuration, v.URI)
 			continue
 		}
-		_, err = io.Copy(out, resp.Body)
-		if err != nil {
-			log.Fatal(err)
+		if fn != "" {
+			_, err = io.Copy(out, resp.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
+
 		resp.Body.Close()
-		log.Printf("Downloaded %v\n", v.URI)
-		if recTime != 0 {
-			log.Printf("Recorded %v of %v\n", v.totalDuration, recTime)
+
+		if VERBOSE {
+			log.Printf("Downloaded %v\n", v.URI)
+			if recTime != 0 {
+				log.Printf("Recorded %v of %v\n", v.totalDuration, recTime)
 			} else {
 				log.Printf("Recorded %v\n", v.totalDuration)
 			}
+		}
 	}
 }
 
-func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc chan *Download) {
+func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc chan *Download, closeWhenFinished bool) {
 	startTime := time.Now()
 	var recDuration time.Duration = 0
 	cache := lru.New(1024)
@@ -98,11 +112,42 @@ func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc ch
 			log.Print(err)
 			time.Sleep(time.Duration(3) * time.Second)
 		}
-		playlist, listType, err := m3u8.DecodeFrom(resp.Body, true)
+		playlist, listType, err := m3u8.DecodeFrom(resp.Body, false)
 		if err != nil {
 			log.Fatal(err)
 		}
 		resp.Body.Close()
+
+		if listType == m3u8.MASTER {
+			baseURL := urlStr[0 : strings.LastIndex(urlStr, "/")+1]
+
+			if VERBOSE {
+				log.Printf("Master playlist detected. Base URL: %s\n", baseURL)
+			}
+
+			mpl := playlist.(*m3u8.MasterPlaylist)
+			var wg sync.WaitGroup
+			for _, v := range mpl.Variants {
+				playlistUrl := baseURL + v.URI
+
+				if VERBOSE {
+					log.Printf("Delegating playlist: %s", playlistUrl)
+				}
+
+				wg.Add(1)
+				go func() {
+					getPlaylist(playlistUrl, recTime, useLocalTime, dlc, false)
+					wg.Done()
+				}()
+			}
+
+			if closeWhenFinished {
+				wg.Wait()
+				close(dlc)
+			}
+			return
+		}
+
 		if listType == m3u8.MEDIA {
 			mpl := playlist.(*m3u8.MediaPlaylist)
 			for _, v := range mpl.Segments {
@@ -135,14 +180,18 @@ func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc ch
 						dlc <- &Download{msURI, recDuration}
 					}
 					if recTime != 0 && recDuration != 0 && recDuration >= recTime {
-						close(dlc)
+						if closeWhenFinished {
+							close(dlc)
+						}
 						return
 					}
 				}
 			}
 			if mpl.Closed {
+				if closeWhenFinished {
 					close(dlc)
-					return
+				}
+				return
 			} else {
 				time.Sleep(time.Duration(int64(mpl.TargetDuration * 1000000000)))
 			}
@@ -156,14 +205,17 @@ func main() {
 
 	duration := flag.Duration("t", time.Duration(0), "Recording duration (0 == infinite)")
 	useLocalTime := flag.Bool("l", false, "Use local time to track duration instead of supplied metadata")
-	flag.StringVar(&USER_AGENT, "ua", fmt.Sprintf("gohls/%v", VERSION), "User-Agent for HTTP client")
+	destination := flag.String("d", "", "Download destination (file).")
+	flag.StringVar(&USER_AGENT, "ua", fmt.Sprintf("hlsvalidator/%v", VERSION), "User-Agent for HTTP client")
+	flag.BoolVar(&VERBOSE, "v", false, "Verbose output")
 	flag.Parse()
 
-	os.Stderr.Write([]byte(fmt.Sprintf("gohls %v - HTTP Live Streaming (HLS) downloader\n", VERSION)))
-	os.Stderr.Write([]byte("Copyright (C) 2013-2014 Kevin Zhang. Licensed for use under the GNU GPL version 3.\n"))
+	os.Stderr.Write([]byte(fmt.Sprintf("hlsvalidator %v - HTTP Live Streaming (HLS) validator\n", VERSION)))
+	os.Stderr.Write([]byte("Copyright (C) 2015 Erik Wallentinsen (The Capitals)\n"))
+	os.Stderr.Write([]byte("Original code by Kevin Zhang. Licensed for use GPL v3.\n\n"))
 
-	if flag.NArg() < 2 {
-		os.Stderr.Write([]byte("Usage: gohls [-l=bool] [-t duration] [-ua user-agent] media-playlist-url output-file\n"))
+	if flag.NArg() != 1 {
+		os.Stderr.Write([]byte("Usage: hlsvalidator [-l=bool (localtime)] [-v=bool (verbose output)] [-t duration] [-ua user-agent] [-d destination] hls-url\n"))
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
@@ -173,6 +225,6 @@ func main() {
 	}
 
 	msChan := make(chan *Download, 1024)
-	go getPlaylist(flag.Arg(0), *duration, *useLocalTime, msChan)
-	downloadSegment(flag.Arg(1), msChan, *duration)
+	go getPlaylist(flag.Arg(0), *duration, *useLocalTime, msChan, true)
+	downloadSegment(*destination, msChan, *duration)
 }

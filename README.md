@@ -1,31 +1,15 @@
-# gohls
+# hlsvalidator
 
-gohls - HTTP Live Streaming (HLS) downloader written in Golang
+Validate and optionally download a HLS stream. If there is a manifest with multiple bitrate playlists, *all* playlists will be processed.
 
+Usage: hlsvalidator [-l=bool (localtime)] [-v=bool (verbose output)] [-t duration] [-ua user-agent] [-d destination] hls-url
 
-* Current version: **1.0.5**
-* Author: Kevin Zhang
-* License: [GNU GPL version 3](http://www.gnu.org/licenses/gpl-3.0.txt)
+Options:
 
-## [Download (source and binaries)](https://github.com/kz26/gohls/releases)
+* Localtime: Use local time to track duration instead of supplied metadata.
 
-Download the source distribution for a tagged stable release, or download binaries for your platform.
-Currently, binaries are available for the following platforms:
+* Duration: Download destination (file).
 
-* Windows 64-bit
-* Mac OS X 64-bit (contributed by @nlittlejohns, compiled and tested on OS X 10.9)
+* User agent: User-Agent for HTTP client
 
-## Usage, options, and defaults
-
-`gohls [-l=bool] [-t duration] [-ua user-agent] media-playlist-url output-file`
-
-* -l=false: Use local time to track duration instead of supplied metadata
-* -t=0: Recording duration (0 == infinite)
-* -ua="user-agent": User-Agent for HTTP client
-
-The recording duration should be specified as a Go-compatible [duration string](http://golang.org/pkg/time/#ParseDuration).
-
-## TODO
-
-* Encrypted streams support?
-* Proper Ctrl-C handling
+* Destination: Verbose output
