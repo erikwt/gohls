@@ -217,7 +217,7 @@ func main() {
 
 	duration := flag.Duration("t", time.Duration(0), "Recording duration (0 == infinite)")
 	useLocalTime := flag.Bool("l", false, "Use local time to track duration instead of supplied metadata")
-	destination := flag.String("d", "", "Download destination (folder).")
+	destination := flag.String("d", "", "Download destination (directory).")
 	flag.StringVar(&USER_AGENT, "ua", fmt.Sprintf("hlsvalidator/%v", VERSION), "User-Agent for HTTP client")
 	flag.BoolVar(&VERBOSE, "v", false, "Verbose output")
 	flag.Parse()

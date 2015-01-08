@@ -8,7 +8,7 @@ Options:
 
 * Localtime: Use local time to track duration instead of supplied metadata.
 
-* Duration: Download destination (file).
+* Duration: Download destination (directory).
 
 * User agent: User-Agent for HTTP client
 
