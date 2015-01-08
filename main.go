@@ -49,17 +49,10 @@ func doRequest(c *http.Client, req *http.Request) (*http.Response, error) {
 type Download struct {
 	URI           string
 	totalDuration time.Duration
+	filename      string
 }
 
 func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
-	var out io.Writer
-	if fn != "" {
-		out, err := os.Create(fn)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer out.Close()
-	}
 	for v := range dlc {
 		req, err := http.NewRequest("GET", v.URI, nil)
 		if err != nil {
@@ -75,6 +68,20 @@ func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
 			continue
 		}
 		if fn != "" {
+			var out *os.File
+			filename := fn + string(os.PathSeparator) + v.filename
+			log.Print(filename)
+			_, err := os.Stat(filename)
+			if err != nil {
+				out, err = os.Create(filename)
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else {
+				out, err = os.OpenFile(filename, os.O_RDWR|os.O_APPEND, 0660)
+			}
+
+			defer out.Close()
 			_, err = io.Copy(out, resp.Body)
 			if err != nil {
 				log.Fatal(err)
@@ -94,7 +101,7 @@ func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
 	}
 }
 
-func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc chan *Download, closeWhenFinished bool) {
+func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc chan *Download, closeWhenFinished bool, filename string) {
 	startTime := time.Now()
 	var recDuration time.Duration = 0
 	cache := lru.New(1024)
@@ -129,6 +136,7 @@ func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc ch
 			var wg sync.WaitGroup
 			for _, v := range mpl.Variants {
 				playlistUrl := baseURL + v.URI
+				filename := safeFilename(v.URI)
 
 				if VERBOSE {
 					log.Printf("Delegating playlist: %s", playlistUrl)
@@ -136,7 +144,7 @@ func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc ch
 
 				wg.Add(1)
 				go func() {
-					getPlaylist(playlistUrl, recTime, useLocalTime, dlc, false)
+					getPlaylist(playlistUrl, recTime, useLocalTime, dlc, false, filename)
 					wg.Done()
 				}()
 			}
@@ -177,7 +185,7 @@ func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc ch
 						} else {
 							recDuration += time.Duration(int64(v.Duration * 1000000000))
 						}
-						dlc <- &Download{msURI, recDuration}
+						dlc <- &Download{msURI, recDuration, filename}
 					}
 					if recTime != 0 && recDuration != 0 && recDuration >= recTime {
 						if closeWhenFinished {
@@ -201,11 +209,15 @@ func getPlaylist(urlStr string, recTime time.Duration, useLocalTime bool, dlc ch
 	}
 }
 
+func safeFilename(filename string) string {
+	return strings.Replace(filename, string(os.PathSeparator), "_", -1)
+}
+
 func main() {
 
 	duration := flag.Duration("t", time.Duration(0), "Recording duration (0 == infinite)")
 	useLocalTime := flag.Bool("l", false, "Use local time to track duration instead of supplied metadata")
-	destination := flag.String("d", "", "Download destination (file).")
+	destination := flag.String("d", "", "Download destination (folder).")
 	flag.StringVar(&USER_AGENT, "ua", fmt.Sprintf("hlsvalidator/%v", VERSION), "User-Agent for HTTP client")
 	flag.BoolVar(&VERBOSE, "v", false, "Verbose output")
 	flag.Parse()
@@ -220,11 +232,23 @@ func main() {
 		os.Exit(2)
 	}
 
+	if *destination != "" {
+		src, err := os.Stat(*destination)
+		if err != nil {
+			log.Fatalf("Destination folder does not exist: %s", *destination)
+		}
+
+		// check if the source is indeed a directory or not
+		if !src.IsDir() {
+			log.Fatalf("Destination is not a directory: %s", *destination)
+		}
+	}
+
 	if !strings.HasPrefix(flag.Arg(0), "http") {
 		log.Fatal("Media playlist url must begin with http/https")
 	}
 
 	msChan := make(chan *Download, 1024)
-	go getPlaylist(flag.Arg(0), *duration, *useLocalTime, msChan, true)
+	go getPlaylist(flag.Arg(0), *duration, *useLocalTime, msChan, true, "single")
 	downloadSegment(*destination, msChan, *duration)
 }
