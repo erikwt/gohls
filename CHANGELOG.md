@@ -5,7 +5,7 @@
 * Validate all chunks in stream
 * Optionally download all chunks of all bitrates to folder
 
-Forked gohls to be used as HLS validator and downloader: hlsvalidator
+Erik Wallentinsen forked kz26/gohls to be used as HLS validator and downloader: hlsvalidator
 ------
 
 1.0.5 - 11/06/2014
