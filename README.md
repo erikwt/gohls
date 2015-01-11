@@ -4,6 +4,10 @@ Validate and optionally download a HLS stream. If there is a manifest with multi
 
 Usage: hlsvalidator [-l=bool (localtime)] [-v=bool (verbose output)] [-t duration] [-ua user-agent] [-d destination] hls-url
 
+Releases
+--------
+* [0.0.1 - Jan 8 2015](https://github.com/erikwt/hlsvalidator/releases/tag/hlsvalidator_0.0.1)
+
 Options:
 
 * Localtime: Use local time to track duration instead of supplied metadata.
