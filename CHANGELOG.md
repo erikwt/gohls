@@ -1,4 +1,16 @@
+0.0.1 - 08/01/2015
+
+* Add support for master manifest
+* Add verbose option (-v)
+* Validate all chunks in stream
+* Optionally download all chunks of all bitrates to folder
+
+======
+Forked gohls to be used as HLS validator and downloader: hlsvalidator
+======
+
 1.0.5 - 11/06/2014
+
 * Fix premature termination when downloading VOD streams with t=0
 * Hide total recording time in log output when t=0
 * Use forked version of m3u8 to fix EXT-X-PLAYLIST-TYPE parsing bug
