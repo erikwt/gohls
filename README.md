@@ -1,6 +1,6 @@
 # hlsvalidator
 
-Validate and optionally download a HLS stream. If there is a master manifest with multiple bitrate playlists, *all* playlists will be processed.
+Validate and optionally download an HLS stream. If there is a master manifest with multiple bitrate playlists, *all* playlists will be processed.
 
 Releases
 --------
